@@ -1,6 +1,6 @@
 image: python3
 
 run:
-    scripts:
+    script:
         - pip3 install -r requirements.txt
         - pxthon3 main.py
