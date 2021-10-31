@@ -38,6 +38,8 @@ class Match:
     def run(self):
         self._set_match_soup()
         self._set_match_date()
+        if self.match_date >= datetime.today():
+            return
         self._set_our_team_is_home()
         self._set_players_in_match()
         self._set_home_away_goals_minute()
@@ -51,18 +53,21 @@ class Match:
             settings={'DATE_ORDER': 'DMY'})
 
     def get_line_up(self):
-        self.line_up = [player.text.replace(u'\xa0', u' ') for player in
+        self.line_up = [player.text.replace(u'\xa0', u' ').strip() for player in
                         self.match_soup.find("h4", attrs={'class': 'text-center'}, text="Sestavy").parent
                             .find("strong", text=self.team_name).parent.findAll("a")]
         return self.line_up
 
     def _set_our_team_is_home(self):
-        self.our_team_is_home = self.team_name == self.match_soup.find("div", attrs={'class': 'col-xs-6', 'style': 'text-align: center;'}).h2.a.text
+        self.our_team_is_home = self.team_name == self.match_soup.find("div", attrs={'class': 'col-xs-6',
+                                                                                     'style': 'text-align: center;'}).h2.a.text
 
     def _set_players_in_match(self):
-        raw_text_line_up = self.match_soup.find("h4", attrs={'class': 'text-center'}, text="Sestavy").parent.find("strong",
-                                                                                                             text=self.team_name).parent.text
-        raw_text_line_up = re.sub("\s+", " ", raw_text_line_up).replace(' - ', ' , ').replace(self.team_name, '').replace('[-]', '')
+        raw_text_line_up = self.match_soup.find("h4", attrs={'class': 'text-center'}, text="Sestavy").parent.find(
+            "strong",
+            text=self.team_name).parent.text
+        raw_text_line_up = re.sub("\s+", " ", raw_text_line_up).replace(' - ', ' , ').replace(self.team_name,
+                                                                                              '').replace('[-]', '')
         split_line_up = list(map(lambda x: x.strip(), raw_text_line_up.split(',')))
         for position in split_line_up:
             contents = [part.strip() for part in re.split('[\(\)]', position) if part.strip()]
@@ -104,52 +109,44 @@ class Match:
         return plus_minus_statistics
 
 
-class Team:
+class CompetitionTeam:
     """
-    Class representing chosen team - default FC Slušovice
+    Class representing chosen competition and chosen team within: default Okresní přebor Zlín - FC Slušovice B
     """
-    common_url = "https://fotbalunas.cz/tym/"
+    common_url = "https://fotbalunas.cz/rozlosovani/soutez/"
 
-    def __init__(self, team_id: str):
+    def __init__(self, competition_id: str, team_id: str, team_name: str, team_name_short: str):
+        self.competition_id = competition_id
         self.team_id = team_id
-        self.team_soup = None
-        self.team_name = None
-        self.all_available_matches = []
+        self.team_name = team_name
+        self.team_name_short = team_name_short
+        self.competition_team_soup = None
         self.all_season_matches = []
         self.all_players = []
         self.plus_minus_statistics = None
 
     def run(self):
-        self._set_team_soup()
-        self._set_team_name()
-        self._set_all_available_matches()
-        self._set_all_season_matches()
-        self._set_all_players()
+        self._set_competition_team_soup()
+        self._set_team_season_matches()
+        self._set_team_players()
         self._initialize_plus_minus_statistics()
         self._set_plus_minus_statistics()
         self.get_plus_minus_statistics()
 
-    def _set_team_soup(self):
-        print(Team.common_url + self.team_id)
-        self.team_soup = BeautifulSoup(requests.get(Team.common_url + self.team_id).text, 'html5lib')
+    def _set_competition_team_soup(self):
+        self.competition_team_soup = BeautifulSoup(requests.get(CompetitionTeam.common_url + self.competition_id).text, 'html5lib')
 
-    def _set_team_name(self):
-        self.team_name = self.team_soup.find('h1').text
+    def _set_team_season_matches(self):
+        all_matches = self.competition_team_soup.findAll('td', attrs={'class': 'zapas-item-utkani text-left'})
+        self.all_season_matches = []
+        for elem in all_matches:
+            if self.team_name_short in elem.text:
+                new_match = Match(match_id=elem.a['href'], team_name=self.team_name)
+                new_match.run()
+                if new_match.match_date<datetime.today():
+                    self.all_season_matches.append(new_match)
 
-    def _set_all_available_matches(self):
-        self.all_available_matches = [elem.a['href'] for elem in
-                                      self.team_soup.findAll('td', attrs={'class': 'zapas-item-utkani text-left'})]
-
-    def _set_all_season_matches(self):
-        for match_id in self.all_available_matches:
-            new_match = Match(match_id, self.team_name)
-            new_match.run()
-            current_date = datetime.now()
-            if bool(current_date.month >= 7) + current_date.year == bool(
-                    new_match.match_date.month >= 7) + new_match.match_date.year:
-                self.all_season_matches.append(new_match)
-
-    def _set_all_players(self):
+    def _set_team_players(self):
         all_players_set = set()
         for match in self.all_season_matches:
             line_up = match.get_line_up()
@@ -160,91 +157,24 @@ class Team:
         self.plus_minus_statistics = dict.fromkeys(self.all_players, 0)
 
     def _set_plus_minus_statistics(self):
+        id = 0
         for match in self.all_season_matches:
-            self.plus_minus_statistics = match.update_plus_minus_statistics(self.plus_minus_statistics)
+            if id != 0:
+                self.plus_minus_statistics = match.update_plus_minus_statistics(self.plus_minus_statistics)
+            id += 1
 
     def get_plus_minus_statistics(self):
-        return self.plus_minus_statistics
+        return dict(sorted(self.plus_minus_statistics.items(), key=lambda item: item[1], reverse=True))
 
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    team_id = "4596"
-    my_team = Team(team_id=team_id)
-    my_team.run()
-    print(my_team.get_plus_minus_statistics())
-    # r = requests.get(URL)
-    # soup_team = BeautifulSoup(r.text, 'html5lib')
-    # team_name = soup_team.find('h1').text
-    # team_last_matches = [elem.a['href'] for elem in
-    #                      soup_team.findAll('td', attrs={'class': 'zapas-item-utkani text-left'})]
-    # team_season_matches = []
-    # for match in team_last_matches:
-    #     r = requests.get(domain + match)
-    #     soup_match = BeautifulSoup(r.text, 'html5lib')
-    #     match_date = dateparser.parse(
-    #         soup_match.find("div", attrs={'class': 'text-center zapas-info'}).find("h2", recursive=False).text,
-    #         settings={'DATE_ORDER': 'DMY'})
-    #     current_date = datetime.now()
-    #     if bool(current_date.month >= 7) + current_date.year == bool(match_date.month >= 7) + match_date.year:
-    #         team_season_matches.append(match)
-    #
-    # all_players_set = set()
-    # for match in team_season_matches:
-    #     r = requests.get(domain + match)
-    #     soup_match = BeautifulSoup(r.text, 'html5lib')
-    #     line_up = [player.text.replace(u'\xa0', u' ') for player in
-    #                soup_match.find("h4", attrs={'class': 'text-center'}, text="Sestavy").parent
-    #                    .find("strong", text=team_name).parent.findAll("a")]
-    #     all_players_set.update(line_up)
-    # all_players = list(all_players_set)
-    # plus_minus_statistics = dict.fromkeys(all_players, 0)
-    # for match in team_season_matches:
-    #     r = requests.get(domain + match)
-    #     soup_match = BeautifulSoup(r.text, 'html5lib')
-    #     our_team_is_home = bool(
-    #         team_name == soup_match.find("div", attrs={'class': 'col-xs-6', 'style': 'text-align: center;'}).h2.a.text)
-    #     raw_text_line_up = soup_match.find("h4", attrs={'class': 'text-center'}, text="Sestavy").parent.find("strong",
-    #                                                                                                          text=team_name).parent.text
-    #     raw_text_line_up = re.sub("\s+", " ", raw_text_line_up).replace(' - ', ' , ').replace(team_name, '').replace(
-    #         '[-]', '')
-    #     split_line_up = list(map(lambda x: x.strip(), raw_text_line_up.split(',')))
-    #     players_in_match = []
-    #     for position in split_line_up:
-    #         contents = [part.strip() for part in re.split('[\(\)]', position) if part.strip()]
-    #         if len(contents) > 1:
-    #             sub_time = int(contents[1].split(". ", 1)[0])
-    #             players_in_match.append(PlayerInMatch(player=contents[0], in_minute=0, out_minute=sub_time))
-    #             players_in_match.append(
-    #                 PlayerInMatch(player=contents[1].split(". ", 1)[1], in_minute=sub_time, out_minute=MAX_MINUTE))
-    #         else:
-    #             players_in_match.append(PlayerInMatch(player=contents[0], in_minute=0, out_minute=MAX_MINUTE))
-    #
-    #     [home_goals_div, away_goals_div] = soup_match.findAll("div", attrs={'class': 'col-xs-3'})
-    #     if home_goals_div.div:
-    #         home_goals_minute = re.findall(r'\d+', home_goals_div.div.text)
-    #     else:
-    #         home_goals_minute = []
-    #
-    #     if away_goals_div.div:
-    #         away_goals_minute = re.findall(r'\d+', away_goals_div.div.text)
-    #     else:
-    #         away_goals_minute = []
-    #     if our_team_is_home:
-    #         our_goals_minute = home_goals_minute
-    #         opponent_goals_minute = away_goals_minute
-    #     else:
-    #         our_goals_minute = away_goals_minute
-    #         opponent_goals_minute = home_goals_minute
-    #
-    #     for player in players_in_match:
-    #         for our_goal in our_goals_minute:
-    #             if player.in_minute <= int(our_goal) <= player.out_minute:
-    #                 plus_minus_statistics[player.player] += 1
-    #         for opponent_goal in opponent_goals_minute:
-    #             if player.in_minute <= int(opponent_goal) <= player.out_minute:
-    #                 plus_minus_statistics[player.player] -= 1
-    #
-    # print(plus_minus_statistics)
+    competition_id = "329"  # OFS Zlín
+    team_id = "4596"    #FC Slušovice B
+    team_name = "FC Slušovice B"
+    team_name_short = "Slušovice" # should be team_name, but trimmed from stop words (FC, FK, SK, ...) and ideally only one word: Valašské Klobouky -> Klobouky
+    my_competition_team = CompetitionTeam(competition_id=competition_id, team_id=team_id,
+                                          team_name=team_name, team_name_short=team_name_short)
+    my_competition_team.run()
+    print(my_competition_team.get_plus_minus_statistics())
 
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
