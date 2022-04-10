@@ -12,6 +12,7 @@ MAX_MINUTE = 500
 
 @dataclass
 class PlayerInMatch:
+    """ """
     player: str
     in_minute: int = field(default=0)
     out_minute: int = field(default=MAX_MINUTE)
@@ -101,10 +102,10 @@ class Match:
     def update_plus_minus_statistics(self, plus_minus_statistics):
         for player in self.players_in_match:
             for our_goal in self.our_goals_minute:
-                if player.in_minute <= int(our_goal) <= player.out_minute:
+                if player.in_minute < int(our_goal) < player.out_minute:
                     plus_minus_statistics[player.player] += 1
             for opponent_goal in self.opponent_goals_minute:
-                if player.in_minute <= int(opponent_goal) <= player.out_minute:
+                if player.in_minute < int(opponent_goal) < player.out_minute:
                     plus_minus_statistics[player.player] -= 1
         return plus_minus_statistics
 
@@ -134,7 +135,8 @@ class CompetitionTeam:
         self.get_plus_minus_statistics()
 
     def _set_competition_team_soup(self):
-        self.competition_team_soup = BeautifulSoup(requests.get(CompetitionTeam.common_url + self.competition_id).text, 'html5lib')
+        self.competition_team_soup = BeautifulSoup(requests.get(CompetitionTeam.common_url + self.competition_id).text,
+                                                   'html5lib')
 
     def _set_team_season_matches(self):
         all_matches = self.competition_team_soup.findAll('td', attrs={'class': 'zapas-item-utkani text-left'})
@@ -143,7 +145,7 @@ class CompetitionTeam:
             if self.team_name_short in elem.text:
                 new_match = Match(match_id=elem.a['href'], team_name=self.team_name)
                 new_match.run()
-                if new_match.match_date<datetime.today():
+                if new_match.match_date < datetime.today():
                     self.all_season_matches.append(new_match)
 
     def _set_team_players(self):
@@ -169,12 +171,11 @@ class CompetitionTeam:
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    competition_id = "329"  # OFS Zlín
-    team_id = "4596"    #FC Slušovice B
-    team_name = "FC Slušovice B"
-    team_name_short = "Slušovice" # should be team_name, but trimmed from stop words (FC, FK, SK, ...) and ideally only one word: Valašské Klobouky -> Klobouky
+    competition_id = "311"  # OFS Zlín
+    team_id = "4506"  # FC Slušovice B
+    team_name = "FC Slušovice"
+    team_name_short = "Slušovice"  # should be team_name, but trimmed from stop words (FC, FK, SK, ...) and ideally only one word: Valašské Klobouky -> Klobouky
     my_competition_team = CompetitionTeam(competition_id=competition_id, team_id=team_id,
                                           team_name=team_name, team_name_short=team_name_short)
     my_competition_team.run()
     print(my_competition_team.get_plus_minus_statistics())
-
